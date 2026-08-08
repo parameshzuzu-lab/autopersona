@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # AI API Config
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 

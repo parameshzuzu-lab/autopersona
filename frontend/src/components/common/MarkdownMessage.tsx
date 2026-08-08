@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Check, Copy } from 'lucide-react';
 
 interface MarkdownMessageProps {
@@ -19,7 +22,8 @@ export const MarkdownMessage: React.FC<MarkdownMessageProps> = ({ content }) => 
   return (
     <div className="markdown-body text-sm text-slate-200 leading-relaxed">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           code({ node, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
