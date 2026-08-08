@@ -6,6 +6,7 @@ from app.schemas.schemas import DiscoveredTopicItem
 from app.models.persona import Persona
 from app.core.config import settings
 from app.services.ai.azure_ai import azure_configured, azure_generate_json
+from app.services.ai import quota_guard
 
 async def generate_linkedin_post(
     topic: DiscoveredTopicItem,
@@ -72,7 +73,7 @@ async def generate_linkedin_post(
             pass  # Fall back to Gemini or the deterministic template
 
     # 1b. Try Gemini API generation if key available
-    if settings.GEMINI_API_KEY:
+    if settings.GEMINI_API_KEY and not quota_guard.quota_blocked():
         try:
             async with httpx.AsyncClient(timeout=12.0) as client:
                 prompt = f"""
@@ -104,7 +105,7 @@ async def generate_linkedin_post(
                   "confidence_score": 0.94
                 }}
                 """
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {"response_mime_type": "application/json"}

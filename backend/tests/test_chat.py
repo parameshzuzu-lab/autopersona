@@ -17,8 +17,11 @@ from app.services.ai.chat_service import (
 from app.services.ai.azure_ai import (
     azure_configured,
     azure_chat_url,
+    _post_with_retry,
     classify_provider_error as azure_classify,
 )
+from app.services.ai import quota_guard
+from app.services.ai.quota_guard import quota_blocked, report_quota, quota_remaining
 from app.services.ai.knowledge_base import lookup as kb_lookup
 
 FAILURES = []
@@ -104,6 +107,14 @@ def test_context_grounding():
     check("ctx has posts", "A post" in text, True)
     check("ctx empty safe", _build_context_text({}), "")
 
+def test_quota_guard():
+    report_quota(seconds=5.0)
+    check("quota blocked after report", quota_blocked(), True)
+    check("quota remaining > 0", quota_remaining() > 0, True)
+    check("409 not quota", azure_classify(409, "conflict", "azure"), "api_error")
+    check("429 arms blocker", azure_classify(429, "too many requests", "azure"), "quota")
+    check("500 not blocker", azure_classify(500, "internal", "azure"), "api_error")
+
 def test_azure_provider():
     check("azure not configured when empty", azure_configured(), False)
     check("azure 401 -> invalid_key", azure_classify(401, "invalid API key",), "invalid_key")
@@ -124,6 +135,33 @@ def test_azure_provider():
     finally:
         settings.AZURE_OPENAI_ENDPOINT, settings.AZURE_OPENAI_DEPLOYMENT, settings.AZURE_OPENAI_API_VERSION = old
 
+class _FakeResp:
+    def __init__(self, status):
+        self.status_code = status
+        self.headers = {}
+
+class _FakeClient:
+    def __init__(self, results, delay=0.0):
+        self.results = list(results)
+        self.calls = 0
+        self.delay = delay
+    async def post(self, *_args, **_kwargs):
+        self.calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return self.results.pop(0) if self.results else _FakeResp(200)
+
+async def test_retry():
+    c = _FakeClient([_FakeResp(429), _FakeResp(429), _FakeResp(200)])
+    resp = await _post_with_retry(c, "https://x", body={}, attempts=5, base_delay=0.01)
+    check("retry: eventually 200", resp.status_code, 200)
+    check("retry: 3 calls made", c.calls, 3)
+
+    c2 = _FakeClient([_FakeResp(429), _FakeResp(429), _FakeResp(429), _FakeResp(429), _FakeResp(429)])
+    resp2 = await _post_with_retry(c2, "https://x", body={}, attempts=5, base_delay=0.01)
+    check("retry: exhausts and returns 429", resp2.status_code, 429)
+    check("retry: calls capped at attempts", c2.calls, 5)
+
 async def main():
     test_math()
     test_tamil()
@@ -134,6 +172,7 @@ async def main():
     test_error_classification()
     test_context_grounding()
     test_azure_provider()
+    await test_retry()
     print(f"\n{len(FAILURES)} failure(s)" if FAILURES else "\nALL PASSED")
 
 if __name__ == "__main__":

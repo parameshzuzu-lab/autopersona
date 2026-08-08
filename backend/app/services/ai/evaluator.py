@@ -5,6 +5,7 @@ from app.schemas.schemas import DiscoveredTopicItem
 from app.models.persona import Persona
 from app.core.config import settings
 from app.services.ai.azure_ai import azure_configured, azure_generate_json
+from app.services.ai import quota_guard
 
 async def evaluate_topic_quality(
     topic: DiscoveredTopicItem,
@@ -50,7 +51,7 @@ async def evaluate_topic_quality(
             pass  # Fall back to algorithmic evaluation rules below
 
     # 1b. Try Gemini API evaluation if key is available
-    if settings.GEMINI_API_KEY:
+    if settings.GEMINI_API_KEY and not quota_guard.quota_blocked():
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 prompt = f"""
@@ -76,7 +77,7 @@ async def evaluate_topic_quality(
                    "reason": "Clear explanation of evaluation decision and score rationale."
                 }}
                 """
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {"response_mime_type": "application/json"}

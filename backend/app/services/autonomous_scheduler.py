@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -97,6 +98,7 @@ async def run_autonomous_cycle():
 
                 # Quality evaluation
                 score, is_approved, reason = await evaluate_topic_quality(topic, persona)
+                await asyncio.sleep(2.0)
                 if is_approved:
                     approved_candidates.append((topic, score, reason))
                 else:

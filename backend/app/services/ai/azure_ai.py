@@ -13,6 +13,7 @@ Official API (verified, current):
   this provider and the rest of the chat engine use.
 """
 
+import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -20,6 +21,7 @@ from typing import List, Optional
 import httpx
 
 from app.core.config import settings
+from app.services.ai import quota_guard
 
 logger = logging.getLogger("AutoPersona-Azure")
 
@@ -34,8 +36,14 @@ class AzureProviderError(Exception):
 
 
 def classify_provider_error(status: int, detail: str, provider: str = "") -> str:
-    """Map Azure/HTTP status + message to a safe error kind. `provider` is optional and unused."""
+    """Map Azure/HTTP status + message to a safe error kind. `provider` is optional and unused.
+
+    A 429 arms the shared quota guard so the background scheduler stops
+    competing with interactive chat for remaining free-tier quota.
+    """
     low = (detail or "").lower()
+    if status == 429:
+        quota_guard.report_quota()
     if status in (400, 403, 404):
         if any(
             k in low
@@ -79,6 +87,52 @@ def azure_chat_url() -> str:
     )
 
 
+async def _post_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    body: Optional[dict] = None,
+    headers: Optional[dict] = None,
+    attempts: int = 5,
+    base_delay: float = 1.5,
+) -> httpx.Response:
+    """POST with exponential backoff on 429, 5xx, timeouts, and network errors.
+
+    Retries are capped (~22s total) so a chat request never hangs. The final
+    non-2xx response (e.g. a persistent 429) is returned so callers can classify
+    it. Never logs the URL or headers (secrets may be present).
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in range(attempts):
+        try:
+            resp = await client.post(url, json=body, headers=headers)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_exc = exc
+            if attempt == attempts - 1:
+                raise
+            await asyncio.sleep(min(base_delay * (2 ** attempt), 20.0))
+            continue
+
+        if resp.status_code == 429 and attempt < attempts - 1:
+            delay = base_delay * (2 ** attempt)
+            retry_after = resp.headers.get("retry-after")
+            if retry_after:
+                try:
+                    delay = min(float(retry_after) + 0.5, 20.0)
+                except ValueError:
+                    pass
+            await asyncio.sleep(delay)
+            continue
+
+        if resp.status_code >= 500 and attempt < attempts - 1:
+            await asyncio.sleep(min(base_delay * (2 ** attempt), 20.0))
+            continue
+
+        return resp
+
+    raise last_exc or httpx.NetworkError("POST failed after retries")
+
+
 async def _post(payload: dict, timeout: float) -> httpx.Response:
     headers = {
         "Content-Type": "application/json",
@@ -86,7 +140,7 @@ async def _post(payload: dict, timeout: float) -> httpx.Response:
     }
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.post(azure_chat_url(), json=payload, headers=headers)
+            return await _post_with_retry(client, azure_chat_url(), body=payload, headers=headers)
     except httpx.TimeoutException as exc:
         raise AzureProviderError("timeout", "Azure OpenAI request timed out.") from exc
     except httpx.NetworkError as exc:
