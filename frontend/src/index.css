@@ -1,0 +1,74 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+@layer base {
+  body {
+    @apply bg-[#080C14] text-slate-100 font-sans antialiased selection:bg-cyan-500 selection:text-black min-h-screen overflow-x-hidden;
+  }
+}
+
+/* Custom Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(34, 211, 238, 0.3);
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Neon Glows & Text Gradients */
+.text-gradient-cyan {
+  background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-purple {
+  background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.neon-border-cyan {
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.neon-border-emerald {
+  box-shadow: 0 0 15px rgba(52, 211, 153, 0.25);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #080C14;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+@keyframes status-glow { 50% { opacity: .45; } }
+.status-glow { animation: status-glow 1.8s ease-in-out infinite; }

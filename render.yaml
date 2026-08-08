@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: autopersona
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: autopersona-postgres
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+databases:
+  - name: autopersona-postgres
+    plan: free
+    region: singapore
+    databaseName: autopersona
+    user: autopersona
