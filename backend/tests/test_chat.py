@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import asyncio
+from app.core.config import settings
 from app.services.ai.chat_service import (
     _safe_eval_math,
     _extract_math_expr,
@@ -12,6 +13,11 @@ from app.services.ai.chat_service import (
     _fallback_reply,
     _classify_provider_error,
     _build_context_text,
+)
+from app.services.ai.azure_ai import (
+    azure_configured,
+    azure_chat_url,
+    classify_provider_error as azure_classify,
 )
 from app.services.ai.knowledge_base import lookup as kb_lookup
 
@@ -98,6 +104,26 @@ def test_context_grounding():
     check("ctx has posts", "A post" in text, True)
     check("ctx empty safe", _build_context_text({}), "")
 
+def test_azure_provider():
+    check("azure not configured when empty", azure_configured(), False)
+    check("azure 401 -> invalid_key", azure_classify(401, "invalid API key",), "invalid_key")
+    check("azure 400 key -> invalid_key", azure_classify(400, "Access denied due to invalid subscription key"), "invalid_key")
+    check("azure 404 deployment -> model_not_found", azure_classify(404, "The deployment 'gpt-4o' does not exist"), "model_not_found")
+    check("azure 429 -> quota", azure_classify(429, "Rate limit is exceeded. Try again in 26 seconds"), "quota")
+    check("azure 500 -> api_error", azure_classify(500, "Internal server error"), "api_error")
+
+    old = (settings.AZURE_OPENAI_ENDPOINT, settings.AZURE_OPENAI_DEPLOYMENT, settings.AZURE_OPENAI_API_VERSION)
+    try:
+        settings.AZURE_OPENAI_ENDPOINT = "https://myres.openai.azure.com/"
+        settings.AZURE_OPENAI_DEPLOYMENT = "gpt-4o-mini"
+        settings.AZURE_OPENAI_API_VERSION = "2024-12-01"
+        url = azure_chat_url()
+        check("azure url has chat/completions", "/openai/deployments/gpt-4o-mini/chat/completions" in url, True)
+        check("azure url api-version query", "api-version=2024-12-01" in url, True)
+        check("azure url no double slash", "azure.com//openai" not in url, True)
+    finally:
+        settings.AZURE_OPENAI_ENDPOINT, settings.AZURE_OPENAI_DEPLOYMENT, settings.AZURE_OPENAI_API_VERSION = old
+
 async def main():
     test_math()
     test_tamil()
@@ -107,6 +133,7 @@ async def main():
     test_knowledge_base()
     test_error_classification()
     test_context_grounding()
+    test_azure_provider()
     print(f"\n{len(FAILURES)} failure(s)" if FAILURES else "\nALL PASSED")
 
 if __name__ == "__main__":

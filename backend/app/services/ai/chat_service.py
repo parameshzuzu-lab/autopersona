@@ -28,6 +28,14 @@ from sqlalchemy.future import select
 from app.core.config import settings
 from app.models.persona import Persona
 from app.models.post import PublishedPosts
+from app.services.ai.azure_ai import (
+    AzureProviderError,
+    azure_chat,
+    azure_configured,
+    classify_provider_error,
+)
+
+_classify_provider_error = classify_provider_error
 from app.services.ai.knowledge_base import lookup as kb_lookup
 from app.services.ai.memory_service import fetch_comprehensive_memory
 
@@ -46,36 +54,19 @@ class ProviderError(Exception):
 PROVIDER_ERROR_MESSAGES = {
     "invalid_key": (
         "The AI provider API key is invalid or not authorized. Please ask the "
-        "administrator to set a valid GEMINI_API_KEY in backend/.env and restart."
+        "administrator to set the correct API key (e.g. AZURE_OPENAI_API_KEY / "
+        "GEMINI_API_KEY / OPENAI_API_KEY) in backend/.env and restart."
     ),
     "quota": "The AI provider quota or rate limit was exceeded. Please try again in a moment.",
     "model_not_found": (
-        "The configured AI model is unavailable on this API key. Please ask the "
-        "administrator to update GEMINI_MODEL in backend/.env."
+        "The configured AI model/deployment is unavailable on this API key. Please ask "
+        "the administrator to update the model or deployment name in backend/.env."
     ),
     "network": "Could not reach the AI provider due to a network error. Please check your connection and try again.",
     "timeout": "The AI provider took too long to respond. Please try again.",
     "invalid_request": "The AI provider rejected the request. Please try again.",
     "api_error": "The AI provider returned an error. Please try again later.",
 }
-
-
-def _classify_provider_error(status: int, detail: str, provider: str) -> str:
-    """Map an HTTP status + API message to a safe, user-facing error kind."""
-    low = (detail or "").lower()
-    if status in (400, 403, 404):
-        if any(k in low for k in ("api key", "unauthorized", "permission", "invalid argument")):
-            return "invalid_key"
-        if status == 404 or "not found" in low or "no longer available" in low or "not supported" in low:
-            return "model_not_found"
-        return "invalid_request"
-    if status == 401:
-        return "invalid_key"
-    if status == 429:
-        return "quota"
-    if status >= 500:
-        return "api_error"
-    return "api_error"
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -382,6 +373,12 @@ def _validate_model_text(text: str) -> Optional[str]:
 # Provider calls
 # ---------------------------------------------------------------------------
 
+async def _call_azure(messages: List[dict]) -> dict:
+    """Microsoft Azure OpenAI / Azure AI Foundry chat completion."""
+    text = await azure_chat(messages)
+    return {"reply": text, "mode": "azure"}
+
+
 async def _call_gemini(messages: List[dict]) -> dict:
     async with httpx.AsyncClient(timeout=settings.CHAT_TIMEOUT_SECONDS) as client:
         contents = []
@@ -556,8 +553,9 @@ def _fallback_reply(message: str, context: dict) -> dict:
     return {
         "reply": (
             "I'm sorry — I can't give a reliable answer to that right now. The live reasoning model "
-            "is not configured on this deployment (no **GEMINI_API_KEY** / **OPENAI_API_KEY** set), so "
-            "I'm running in offline safe mode and I don't fabricate facts.\n\n"
+            "is not configured on this deployment (no AI provider API key is set, e.g. "
+            "**AZURE_OPENAI_API_KEY** / **GEMINI_API_KEY** / **OPENAI_API_KEY**), so I'm running in "
+            "offline safe mode and I don't fabricate facts.\n\n"
             "I can still reliably help with: greetings, simple arithmetic, and questions about this "
             "AutoPersona agent. For everything else, ask again once the deployment administrator adds "
             "an AI provider API key."
@@ -599,7 +597,21 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
         system_prompt += "\n\n[Language] The user is writing in Tamil/Tanglish. Reply in Tamil/Tanglish.\n"
         messages[0] = {"role": "system", "content": system_prompt}
 
-    # 1) Gemini
+    # 1) Microsoft Azure OpenAI / Azure AI Foundry (preferred when configured)
+    if azure_configured():
+        try:
+            result = await _call_azure(messages)
+            text = _validate_model_text(result["reply"])
+            if text:
+                return {"reply": text, "sources": sources or None, "mode": result["mode"]}
+            logger.warning("Azure OpenAI returned an empty/invalid response; falling back.")
+        except AzureProviderError as exc:
+            last_error = ProviderError(exc.kind, exc.message)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Azure chat call failed unexpectedly: %s", type(exc).__name__)
+
+    # 2) Gemini
     if settings.GEMINI_API_KEY:
         try:
             result = await _call_gemini(messages)
@@ -613,7 +625,7 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
             last_error = exc
             logger.warning("Gemini chat call failed unexpectedly: %s", type(exc).__name__)
 
-    # 2) OpenAI
+    # 3) OpenAI
     if settings.OPENAI_API_KEY:
         try:
             result = await _call_openai(messages)
@@ -628,7 +640,7 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
             last_error = exc
             logger.warning("OpenAI chat call failed unexpectedly: %s", type(exc).__name__)
 
-    # 3) Honest local fallback (or a surfaced provider error message)
+    # 4) Honest local fallback (or a surfaced provider error message)
     fallback = _fallback_reply(message, context)
     reply = fallback["reply"]
     mode = fallback["mode"]

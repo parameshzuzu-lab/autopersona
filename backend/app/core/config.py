@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+    # Microsoft Azure OpenAI / Azure AI Foundry (preferred Microsoft provider)
+    AZURE_OPENAI_API_KEY: Optional[str] = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    AZURE_OPENAI_DEPLOYMENT: str = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
+    AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01")
+
     # Chat Engine Settings
     CHAT_TIMEOUT_SECONDS: int = int(os.getenv("CHAT_TIMEOUT_SECONDS", "30"))
     CHAT_MAX_OUTPUT_TOKENS: int = int(os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024"))

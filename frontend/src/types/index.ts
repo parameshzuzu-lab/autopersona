@@ -104,6 +104,6 @@ export interface ChatMessage {
 export interface ChatResponse {
   reply: string;
   sources?: string[];
-  mode: 'gemini' | 'openai' | 'local' | 'local_error' | 'local_offline' | 'error';
+  mode: 'azure' | 'gemini' | 'openai' | 'local' | 'local_error' | 'local_offline' | 'error';
   error?: string;
 }

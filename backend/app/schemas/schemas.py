@@ -156,5 +156,5 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     sources: Optional[List[str]] = Field(default=None, description="Grounded source URLs from memory/feed used to inform the answer")
-    mode: str = Field(..., description="'gemini', 'openai', 'local', or 'error'")
+    mode: str = Field(..., description="'azure', 'gemini', 'openai', 'local', or 'error'")
     error: Optional[str] = Field(default=None, description="Human-friendly error message when the model call failed")

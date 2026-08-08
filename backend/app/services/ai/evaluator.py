@@ -4,6 +4,7 @@ from typing import Tuple
 from app.schemas.schemas import DiscoveredTopicItem
 from app.models.persona import Persona
 from app.core.config import settings
+from app.services.ai.azure_ai import azure_configured, azure_generate_json
 
 async def evaluate_topic_quality(
     topic: DiscoveredTopicItem,
@@ -13,7 +14,42 @@ async def evaluate_topic_quality(
     Evaluates a discovered topic against persona standards.
     Returns: (quality_score: float, is_approved: bool, rejection_or_approval_reason: str)
     """
-    # 1. Try Gemini API evaluation if key is available
+    # 1. Try Azure OpenAI (Microsoft) evaluation if configured
+    if azure_configured():
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as _:
+                prompt = f"""
+                You are an elite AI technical content reviewer evaluating a potential topic for an executive AI engineering persona.
+
+                Persona Core Topics: {persona.core_topics}
+                Target Audience: {persona.target_audience}
+                Min Quality Score Threshold: {persona.min_quality_score}/10.0
+
+                Candidate Topic Title: {topic.title}
+                Summary: {topic.summary}
+                Category: {topic.category}
+
+                Evaluate this topic on:
+                1. Technical Depth & Substance (0-10)
+                2. Relevancy to AI/Engineering (0-10)
+                3. Novelty & Actionability (0-10)
+
+                Provide output strictly in JSON format:
+                {{
+                   "score": 8.5,
+                   "approved": true,
+                   "reason": "Clear explanation of evaluation decision and score rationale."
+                }}
+                """
+                parsed = await azure_generate_json(prompt, timeout=8.0)
+                score = float(parsed.get("score", 7.5))
+                approved = score >= persona.min_quality_score
+                reason = parsed.get("reason", "Evaluated via Azure OpenAI AI model.")
+                return score, approved, reason
+        except Exception:
+            pass  # Fall back to algorithmic evaluation rules below
+
+    # 1b. Try Gemini API evaluation if key is available
     if settings.GEMINI_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:

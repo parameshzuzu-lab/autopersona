@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from app.schemas.schemas import DiscoveredTopicItem
 from app.models.persona import Persona
 from app.core.config import settings
+from app.services.ai.azure_ai import azure_configured, azure_generate_json
 
 async def generate_linkedin_post(
     topic: DiscoveredTopicItem,
@@ -31,7 +32,46 @@ async def generate_linkedin_post(
     phrases_to_avoid_str = ", ".join([f"'{p}'" for p in overused_phrases[:5]])
     opinions_str = "\n".join([f"- {o}" for o in editorial_opinions[:3]])
 
-    # 1. Try Gemini API generation if key available
+    # 1. Try Azure OpenAI (Microsoft) generation if configured
+    if azure_configured():
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as _:
+                prompt = f"""
+                You are an autonomous executive AI content writer with persona voice: '{persona.editorial_voice}'.
+                Target Audience: {persona.target_audience}
+
+                Candidate Topic Title: {topic.title}
+                Topic Summary: {topic.summary}
+                Topic Source URL: {topic.source_url}
+
+                Overused phrases to ABSOLUTELY AVOID: {phrases_to_avoid_str}
+                Core Persona Stance / Opinions:
+                {opinions_str}
+
+                Write a high-impact LinkedIn post following strict constraints:
+                1. Tone: LinkedIn professional, authoritative, vision-driven.
+                2. Length: Maximum 250 words total body text.
+                3. Structure: Hook line, 3 technical insights, strategic takeaway, CTA.
+
+                Return strictly JSON formatted as:
+                {{
+                  "title": "Catchy Headline Title",
+                  "body": "LinkedIn formatted body text under 250 words...",
+                  "hashtags": ["#AI", "#SystemArchitecture", "#TechLeadership"],
+                  "why_selected": "1-2 sentences explaining why this topic was chosen for publication.",
+                  "why_relevant_now": "1-2 sentences explaining why this topic matters right now in the industry.",
+                  "source_urls": ["{topic.source_url or 'https://techcrunch.com'}"],
+                  "editorial_score": 8.8,
+                  "confidence_score": 0.94
+                }}
+                """
+                parsed = await azure_generate_json(prompt, timeout=12.0)
+                parsed["publishing_timestamp"] = datetime.utcnow().isoformat()
+                return parsed
+        except Exception:
+            pass  # Fall back to Gemini or the deterministic template
+
+    # 1b. Try Gemini API generation if key available
     if settings.GEMINI_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=12.0) as client:
