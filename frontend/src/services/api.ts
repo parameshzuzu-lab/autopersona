@@ -229,9 +229,11 @@ export const apiService = {
     return res.data;
   },
 
-  // Ask the AI persona a question (grounded in its memory & feed)
+  // Ask the AI a question. Generous timeout: the backend retries rate
+  // limits with backoff, so a busy provider can take longer than the
+  // default 10s client timeout.
   async askChat(message: string, history: ChatMessage[] = []): Promise<ChatResponse> {
-    const res = await client.post<ChatResponse>('/chat', { message, history });
+    const res = await client.post<ChatResponse>('/chat', { message, history }, { timeout: 90_000 });
     return res.data;
   }
 };
