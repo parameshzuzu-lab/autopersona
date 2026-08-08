@@ -10,7 +10,8 @@ import {
   Terminal,
   Zap,
   Activity,
-  Radio
+  Radio,
+  MessagesSquare
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onTriggerPublish, isPublishing
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
     { label: 'Feed', path: '/feed', icon: Rss },
+    { label: 'Persona Chat', path: '/chat', icon: MessagesSquare },
     { label: 'Memory Engine', path: '/memory', icon: Brain },
     { label: 'Rejected Topics', path: '/rejected', icon: XCircle },
     { label: 'Activity Monitor', path: '/activity', icon: Radio },

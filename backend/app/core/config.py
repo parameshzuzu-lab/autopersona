@@ -21,7 +21,18 @@ class Settings(BaseSettings):
 
     # AI API Config
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    # Chat Engine Settings
+    CHAT_TIMEOUT_SECONDS: int = int(os.getenv("CHAT_TIMEOUT_SECONDS", "30"))
+    CHAT_MAX_OUTPUT_TOKENS: int = int(os.getenv("CHAT_MAX_OUTPUT_TOKENS", "1024"))
+    CHAT_MAX_HISTORY_MESSAGES: int = int(os.getenv("CHAT_MAX_HISTORY_MESSAGES", "20"))
+    CHAT_MAX_RESPONSE_CHARS: int = int(os.getenv("CHAT_MAX_RESPONSE_CHARS", "8000"))
+
+    # External knowledge (optional web search hook for the chat engine)
+    TAVILY_API_KEY: Optional[str] = os.getenv("TAVILY_API_KEY", "")
 
     # Autonomous Scheduler Settings
     SCHEDULER_INTERVAL_MINUTES: int = 15

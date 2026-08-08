@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -23,12 +24,17 @@ from app.schemas.schemas import (
     TopicsOverviewResponse,
     TopicEvaluationResult,
     DiscoveredTopicItem,
-    GenericResponse
+    GenericResponse,
+    ChatRequest,
+    ChatResponse,
 )
 from app.services.autonomous_scheduler import run_autonomous_cycle, scheduler
 from app.services.ai.memory_service import fetch_comprehensive_memory
+from app.services.ai.chat_service import ask_chat
 
 router = APIRouter()
+
+logger = logging.getLogger("AutoPersona-API")
 
 def parse_post_urls_hashtags(post: PublishedPosts) -> dict:
     source_urls = []
@@ -307,3 +313,24 @@ async def get_topics_overview(
         "recent_evaluations": recent_evaluations,
         "rejected_topics": rejected_list
     }
+
+# ---------------------------------------------------------
+# 9. POST /api/chat - Ask the AI persona a question
+# ---------------------------------------------------------
+@router.post("/chat", response_model=ChatResponse)
+async def chat_with_persona(
+    payload: ChatRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    history = [m.dict() for m in payload.history] if payload.history else []
+    try:
+        result = await ask_chat(db, payload.message, history)
+    except Exception as exc:
+        logger.error("Chat endpoint failed: %s", exc)
+        return ChatResponse(
+            reply="Sorry, I couldn't generate a reliable answer right now. Please try again.",
+            sources=None,
+            mode="error",
+            error="The AI service encountered an unexpected error. Please try again."
+        )
+    return ChatResponse(**result)

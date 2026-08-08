@@ -7,6 +7,7 @@ import { FeedPage } from './pages/FeedPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { RejectedTopicsPage } from './pages/RejectedTopicsPage';
 import { ActivityMonitorPage } from './pages/ActivityMonitorPage';
+import { ChatPage } from './pages/ChatPage';
 import { apiService } from './services/api';
 import { MemoryOverview, Persona, PublishedPost, SchedulerStatus } from './types';
 
@@ -52,6 +53,7 @@ export function App() {
             <Route path="/memory" element={<MemoryPage memory={memory} />} />
             <Route path="/rejected" element={<RejectedTopicsPage />} />
             <Route path="/activity" element={<ActivityMonitorPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

@@ -6,7 +6,9 @@ import {
   Persona,
   SchedulerStatus,
   LogEntry,
-  TopicsOverview
+  TopicsOverview,
+  ChatMessage,
+  ChatResponse
 } from '../types';
 
 export interface ActivityMonitor {
@@ -19,8 +21,7 @@ export interface ActivityMonitor {
   logs: LogEntry[];
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
-  ?? (import.meta.env.PROD ? '/api' : 'http://localhost:8000/api');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -221,11 +222,16 @@ export const apiService = {
         }
       ];
     }
-  }
-  ,
+  },
 
   async getActivity(): Promise<ActivityMonitor> {
     const res = await client.get<ActivityMonitor>('/activity');
+    return res.data;
+  },
+
+  // Ask the AI persona a question (grounded in its memory & feed)
+  async askChat(message: string, history: ChatMessage[] = []): Promise<ChatResponse> {
+    const res = await client.post<ChatResponse>('/chat', { message, history });
     return res.data;
   }
 };

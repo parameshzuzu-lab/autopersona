@@ -140,3 +140,21 @@ class GenericResponse(BaseModel):
     status: str
     message: str
     data: Optional[dict] = None
+
+# --- Chat Schemas ---
+class ChatMessageItem(BaseModel):
+    role: str = Field(description="'user' or 'assistant'")
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000, description="The user's question to the AI persona")
+    history: Optional[List[ChatMessageItem]] = Field(
+        default=None,
+        description="Optional recent conversation history to provide conversational context"
+    )
+
+class ChatResponse(BaseModel):
+    reply: str
+    sources: Optional[List[str]] = Field(default=None, description="Grounded source URLs from memory/feed used to inform the answer")
+    mode: str = Field(..., description="'gemini', 'openai', 'local', or 'error'")
+    error: Optional[str] = Field(default=None, description="Human-friendly error message when the model call failed")

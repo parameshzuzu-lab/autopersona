@@ -95,3 +95,15 @@ export interface TopicsOverview {
   recent_evaluations: TopicEvaluation[];
   rejected_topics: RejectedTopic[];
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  sources?: string[];
+  mode: 'gemini' | 'openai' | 'local' | 'local_error' | 'local_offline' | 'error';
+  error?: string;
+}
