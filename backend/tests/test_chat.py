@@ -11,6 +11,7 @@ from app.services.ai.chat_service import (
     _build_conversation_messages,
     _fallback_reply,
 )
+from app.services.ai.knowledge_base import lookup as kb_lookup
 
 FAILURES = []
 
@@ -56,12 +57,24 @@ def test_fallback_no_fabrication():
     reply = _fallback_reply("How many users does ChatGPT have right now?", {})["reply"]
     check("no fabrication for unknown", "reliable answer" in reply, True)
 
+def test_knowledge_base():
+    check("kb java inheritance", "extends" in kb_lookup("Explain inheritance in Java"), True)
+    check("kb fibonacci", "Fibonacci" in kb_lookup("Write a Java program to print fibonacci numbers"), True)
+    check("kb oop", "Encapsulation" in kb_lookup("What is object-oriented programming?"), True)
+    check("kb nullpointer", "null" in kb_lookup("Why do I get NullPointerException?").lower(), True)
+    check("kb python vs java", "Python" in kb_lookup("What is the difference between python vs java"), True)
+    check("kb tamil inheritance", "inheritance" in kb_lookup("Java inheritance pathi Tamil la sollu").lower(), True)
+    check("kb greeting no match", kb_lookup("hello there!"), None)
+    check("kb unknown no match", kb_lookup("What is the price of a Tesla Model 3?"), None)
+    check("kb offline fallback", "reliable answer" in _fallback_reply("What is the price of a Tesla Model 3?", {})["reply"], True)
+
 async def main():
     test_math()
     test_tamil()
     test_validation()
     test_context()
     test_fallback_no_fabrication()
+    test_knowledge_base()
     print(f"\n{len(FAILURES)} failure(s)" if FAILURES else "\nALL PASSED")
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from sqlalchemy.future import select
 from app.core.config import settings
 from app.models.persona import Persona
 from app.models.post import PublishedPosts
+from app.services.ai.knowledge_base import lookup as kb_lookup
 from app.services.ai.memory_service import fetch_comprehensive_memory
 
 logger = logging.getLogger("AutoPersona-Chat")
@@ -384,7 +385,12 @@ def _fallback_reply(message: str, context: dict) -> dict:
             "mode": "local",
         }
 
-    # 3) Tamil / Tanglish detection -> respond in Tamil (honest, no fabrication).
+    # 3) Offline knowledge base (verified, hand-written answers).
+    kb_answer = kb_lookup(msg)
+    if kb_answer:
+        return {"reply": kb_answer, "mode": "local"}
+
+    # 4) Tamil / Tanglish detection -> respond in Tamil (honest, no fabrication).
     if _detect_tamil(msg):
         if re.search(r"(welcome|vanakkam|hi|hello|hey)\b", low) or not any(op in re.sub(r"\s+", "", msg) for op in ("+", "-", "*", "/")):
             return {
@@ -400,7 +406,7 @@ def _fallback_reply(message: str, context: dict) -> dict:
             "mode": "local_offline",
         }
 
-    # 4) The assistant has NO reasoning model configured -> be honest.
+    # 5) The assistant has NO reasoning model configured -> be honest.
     return {
         "reply": (
             "I'm sorry — I can't give a reliable answer to that right now. The live reasoning model "
