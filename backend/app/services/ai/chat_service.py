@@ -33,6 +33,50 @@ from app.services.ai.memory_service import fetch_comprehensive_memory
 
 logger = logging.getLogger("AutoPersona-Chat")
 
+
+class ProviderError(Exception):
+    """Raised when an AI provider call fails. Carries a safe, user-facing error kind."""
+
+    def __init__(self, kind: str, message: str):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+
+PROVIDER_ERROR_MESSAGES = {
+    "invalid_key": (
+        "The AI provider API key is invalid or not authorized. Please ask the "
+        "administrator to set a valid GEMINI_API_KEY in backend/.env and restart."
+    ),
+    "quota": "The AI provider quota or rate limit was exceeded. Please try again in a moment.",
+    "model_not_found": (
+        "The configured AI model is unavailable on this API key. Please ask the "
+        "administrator to update GEMINI_MODEL in backend/.env."
+    ),
+    "network": "Could not reach the AI provider due to a network error. Please check your connection and try again.",
+    "timeout": "The AI provider took too long to respond. Please try again.",
+    "invalid_request": "The AI provider rejected the request. Please try again.",
+    "api_error": "The AI provider returned an error. Please try again later.",
+}
+
+
+def _classify_provider_error(status: int, detail: str, provider: str) -> str:
+    """Map an HTTP status + API message to a safe, user-facing error kind."""
+    low = (detail or "").lower()
+    if status in (400, 403, 404):
+        if any(k in low for k in ("api key", "unauthorized", "permission", "invalid argument")):
+            return "invalid_key"
+        if status == 404 or "not found" in low or "no longer available" in low or "not supported" in low:
+            return "model_not_found"
+        return "invalid_request"
+    if status == 401:
+        return "invalid_key"
+    if status == 429:
+        return "quota"
+    if status >= 500:
+        return "api_error"
+    return "api_error"
+
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
@@ -212,6 +256,60 @@ async def _build_context(db: AsyncSession) -> dict:
     }
 
 
+def _build_context_text(context: dict, max_posts: int = 5) -> str:
+    """Render the persona memory + recent posts as a compact grounding block.
+
+    Only real application data is included; nothing is invented here.
+    """
+    parts = []
+    persona = context.get("persona")
+    if persona:
+        parts.append(f"Persona name: {persona.name}")
+        if getattr(persona, "editorial_voice", None):
+            parts.append(f"Editorial voice: {persona.editorial_voice}")
+        if getattr(persona, "target_audience", None):
+            parts.append(f"Target audience: {persona.target_audience}")
+        if getattr(persona, "core_topics", None):
+            parts.append(f"Core topics: {persona.core_topics}")
+
+    memory = context.get("memory") or {}
+    past_count = memory.get("past_posts_count")
+    if past_count is not None:
+        parts.append(f"Total posts published by this persona: {past_count}")
+
+    companies = memory.get("discussed_companies") or []
+    if companies:
+        parts.append(
+            "Companies the persona has written about: "
+            + ", ".join(
+                f"{c.get('company')} ({c.get('mentions')}x)" for c in companies[:15] if c.get("company")
+            )
+        )
+    trends = memory.get("recent_trends") or []
+    if trends:
+        parts.append(
+            "Trends the persona tracks: "
+            + ", ".join(t.get("trend") for t in trends[:15] if t.get("trend"))
+        )
+    opinions = memory.get("editorial_opinions") or []
+    if opinions:
+        parts.append("Persona editorial opinions: " + "; ".join(str(o) for o in opinions[:5]))
+
+    for post in (context.get("posts") or [])[:max_posts]:
+        title = post.get("title") or ""
+        content = (post.get("content") or "")[:600]
+        why = post.get("why_relevant_now") or ""
+        urls = " ".join(post.get("source_urls") or [])
+        snippet = f"- Post: {title}\n  {content}"
+        if why:
+            snippet += f"\n  Why relevant now: {why}"
+        if urls:
+            snippet += f"\n  Sources: {urls}"
+        parts.append(snippet)
+
+    return "\n".join(p for p in parts if p)
+
+
 def _build_system_prompt(persona) -> str:
     """System prompt + persona metadata. The behaviour rules always stay on top."""
     extras = []
@@ -306,8 +404,32 @@ async def _call_gemini(messages: List[dict]) -> dict:
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
         )
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(url, json=payload)
+        except httpx.TimeoutException as exc:
+            raise ProviderError("timeout", "Gemini request timed out.") from exc
+        except httpx.NetworkError as exc:
+            raise ProviderError("network", "Could not reach the Gemini API.") from exc
+        except Exception as exc:
+            raise ProviderError("api_error", "Unexpected error calling Gemini.") from exc
+
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                detail = resp.json().get("error", {}).get("message", "") or ""
+            except Exception:
+                pass
+            kind = _classify_provider_error(resp.status_code, detail, "gemini")
+            # Log status + provider message ONLY. Never log the request URL (it
+            # contains the API key) and never log user message content.
+            logger.warning(
+                "Gemini API error: status=%s kind=%s detail=%s",
+                resp.status_code,
+                kind,
+                (detail or "")[:300],
+            )
+            raise ProviderError(kind, detail or f"Gemini HTTP {resp.status_code}")
+
         data = resp.json()
         parts = data["candidates"][0]["content"]["parts"]
         text = "".join(p.get("text", "") for p in parts)
@@ -324,8 +446,32 @@ async def _call_openai(messages: list) -> dict:
         }
         url = "https://api.openai.com/v1/chat/completions"
         headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
-        resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise ProviderError("timeout", "OpenAI request timed out.") from exc
+        except httpx.NetworkError as exc:
+            raise ProviderError("network", "Could not reach the OpenAI API.") from exc
+        except Exception as exc:
+            raise ProviderError("api_error", "Unexpected error calling OpenAI.") from exc
+
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                body = resp.json()
+                if isinstance(body, dict):
+                    detail = body.get("error", {}).get("message", "") if isinstance(body.get("error"), dict) else str(body)
+            except Exception:
+                pass
+            kind = _classify_provider_error(resp.status_code, detail, "openai")
+            logger.warning(
+                "OpenAI API error: status=%s kind=%s detail=%s",
+                resp.status_code,
+                kind,
+                (detail or "")[:300],
+            )
+            raise ProviderError(kind, detail or f"OpenAI HTTP {resp.status_code}")
+
         data = resp.json()
         text = data["choices"][0]["message"]["content"]
         return {"reply": text, "mode": "openai"}
@@ -429,6 +575,20 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
     persona = context["persona"]
 
     system_prompt = _build_system_prompt(persona)
+
+    # Inject the application's real data (persona memory + recent posts) as
+    # grounding so the model can answer questions about this app's content.
+    context_text = _build_context_text(context)
+    if context_text:
+        system_prompt += (
+            "\n\n## Application context (grounding data)\n"
+            f"{context_text}\n\n"
+            "Grounding rule: Use the application context above when the user asks about this "
+            "persona's posts, memory, companies, trends, or opinions. If the information the "
+            "user needs is NOT present in the application context, say clearly that it is "
+            "not available in the app data and do not invent it."
+        )
+
     messages = _build_conversation_messages(message, history, system_prompt)
     sources = [u for p in context["posts"] for u in p.get("source_urls", [])][:3]
     last_error = None
@@ -446,9 +606,12 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
             text = _validate_model_text(result["reply"])
             if text:
                 return {"reply": text, "sources": sources or None, "mode": result["mode"]}
+            logger.warning("Gemini returned an empty/invalid response; falling back.")
+        except ProviderError as exc:
+            last_error = exc
         except Exception as exc:
             last_error = exc
-            logger.warning("Gemini chat call failed: %s", exc)
+            logger.warning("Gemini chat call failed unexpectedly: %s", type(exc).__name__)
 
     # 2) OpenAI
     if settings.OPENAI_API_KEY:
@@ -458,19 +621,23 @@ async def ask_chat(db: AsyncSession, message: str, history: Optional[List[dict]]
             if text:
                 result["sources"] = sources or None
                 return result
+            logger.warning("OpenAI returned an empty/invalid response; falling back.")
+        except ProviderError as exc:
+            last_error = exc
         except Exception as exc:
             last_error = exc
-            logger.warning("OpenAI chat call failed: %s", exc)
+            logger.warning("OpenAI chat call failed unexpectedly: %s", type(exc).__name__)
 
     # 3) Honest local fallback (or a surfaced provider error message)
     fallback = _fallback_reply(message, context)
     reply = fallback["reply"]
     mode = fallback["mode"]
+
     if last_error is not None and mode == "local_offline":
-        # provider configured but failed -> tell user to retry, not expose raw error.
-        return {
-            "reply": "Sorry, I couldn't generate a reliable answer right now. Please try again.",
-            "sources": None,
-            "mode": "error",
-        }
+        if isinstance(last_error, ProviderError) and last_error.kind in PROVIDER_ERROR_MESSAGES:
+            user_msg = PROVIDER_ERROR_MESSAGES[last_error.kind]
+        else:
+            user_msg = "Sorry, I couldn't generate a reliable answer right now. Please try again."
+        return {"reply": user_msg, "sources": None, "mode": "error", "error": user_msg}
+
     return {"reply": reply, "sources": None, "mode": mode}

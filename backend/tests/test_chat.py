@@ -10,6 +10,8 @@ from app.services.ai.chat_service import (
     _validate_model_text,
     _build_conversation_messages,
     _fallback_reply,
+    _classify_provider_error,
+    _build_context_text,
 )
 from app.services.ai.knowledge_base import lookup as kb_lookup
 
@@ -68,6 +70,34 @@ def test_knowledge_base():
     check("kb unknown no match", kb_lookup("What is the price of a Tesla Model 3?"), None)
     check("kb offline fallback", "reliable answer" in _fallback_reply("What is the price of a Tesla Model 3?", {})["reply"], True)
 
+def test_error_classification():
+    check("429 -> quota", _classify_provider_error(429, "quota exceeded", "gemini"), "quota")
+    check("401 -> invalid_key", _classify_provider_error(401, "unauthorized", "gemini"), "invalid_key")
+    check("400 key -> invalid_key", _classify_provider_error(400, "API key not valid", "gemini"), "invalid_key")
+    check("404 model -> model_not_found", _classify_provider_error(404, "models/x is not found", "gemini"), "model_not_found")
+    check("500 -> api_error", _classify_provider_error(500, "internal error", "gemini"), "api_error")
+    check("503 -> api_error", _classify_provider_error(503, "unavailable", "gemini"), "api_error")
+
+def test_context_grounding():
+    ctx = {
+        "persona": type("P", (), {"name": "TestPersona", "editorial_voice": "Expert tone", "target_audience": "Engineers", "core_topics": "AI"})(),
+        "memory": {
+            "past_posts_count": 5,
+            "discussed_companies": [{"company": "OpenAI", "mentions": 3}],
+            "recent_trends": [{"trend": "Agentic AI", "frequency": 2}],
+            "editorial_opinions": ["I think X"],
+        },
+        "posts": [
+            {"title": "A post", "content": "content here", "why_relevant_now": "now", "source_urls": ["https://ex.com"]}
+        ],
+    }
+    text = _build_context_text(ctx)
+    check("ctx has persona name", "TestPersona" in text, True)
+    check("ctx has companies", "OpenAI" in text, True)
+    check("ctx has trends", "Agentic AI" in text, True)
+    check("ctx has posts", "A post" in text, True)
+    check("ctx empty safe", _build_context_text({}), "")
+
 async def main():
     test_math()
     test_tamil()
@@ -75,6 +105,8 @@ async def main():
     test_context()
     test_fallback_no_fabrication()
     test_knowledge_base()
+    test_error_classification()
+    test_context_grounding()
     print(f"\n{len(FAILURES)} failure(s)" if FAILURES else "\nALL PASSED")
 
 if __name__ == "__main__":

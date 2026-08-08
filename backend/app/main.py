@@ -9,6 +9,11 @@ from app.api.v1.api import api_router
 from app.services.autonomous_scheduler import start_autonomous_scheduler, scheduler
 
 logging.basicConfig(level=logging.INFO)
+
+# httpx logs every request URL at INFO level. Gemini/OpenAI URLs embed the API key
+# in the query string, so suppress httpx request logging to keep the key out of logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("AutoPersona-Main")
 
 app = FastAPI(
